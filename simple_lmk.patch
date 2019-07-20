@@ -1,6 +1,6 @@
-From edb22d6ea31a596e3e56a2f20a2e066e30134425 Mon Sep 17 00:00:00 2001
+From 0d4737a74e046999e70f0f5fa8a01043d8c14344 Mon Sep 17 00:00:00 2001
 From: Sultan Alsawaf <sultan@kerneltoast.com>
-Date: Fri, 24 May 2019 02:13:50 -0700
+Date: Sat, 20 Jul 2019 09:47:19 -0700
 Subject: [PATCH] simple_lmk: Introduce Simple Low Memory Killer for Android
 
 This is a complete low memory killer solution for Android that is small
@@ -20,11 +20,11 @@ Signed-off-by: Sultan Alsawaf <sultan@kerneltoast.com>
 ---
  drivers/android/Kconfig      |  44 +++++
  drivers/android/Makefile     |   1 +
- drivers/android/simple_lmk.c | 332 +++++++++++++++++++++++++++++++++++
+ drivers/android/simple_lmk.c | 331 +++++++++++++++++++++++++++++++++++
  include/linux/simple_lmk.h   |  26 +++
  kernel/fork.c                |   2 +
  mm/vmscan.c                  |   4 +
- 6 files changed, 409 insertions(+)
+ 6 files changed, 408 insertions(+)
  create mode 100644 drivers/android/simple_lmk.c
  create mode 100644 include/linux/simple_lmk.h
 
@@ -94,10 +94,10 @@ index 4b7c726bb560..5d4acf08db99 100644
 +obj-$(CONFIG_ANDROID_SIMPLE_LMK)	+= simple_lmk.o
 diff --git a/drivers/android/simple_lmk.c b/drivers/android/simple_lmk.c
 new file mode 100644
-index 000000000000..29637ecc5be5
+index 000000000000..e7e91b7b4c7b
 --- /dev/null
 +++ b/drivers/android/simple_lmk.c
-@@ -0,0 +1,332 @@
+@@ -0,0 +1,331 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Copyright (C) 2019 Sultan Alsawaf <sultan@kerneltoast.com>.
@@ -200,7 +200,6 @@ index 000000000000..29637ecc5be5
 +
 +	for_each_process(tsk) {
 +		struct task_struct *vtsk;
-+		unsigned long tasksize;
 +
 +		/*
 +		 * Search for tasks with the targeted importance (adj). Since
@@ -225,7 +224,7 @@ index 000000000000..29637ecc5be5
 +		varr[*vindex].size = get_mm_rss(vtsk->mm);
 +
 +		/* Keep track of the number of pages that have been found */
-+		pages_found += tasksize;
++		pages_found += varr[*vindex].size;
 +
 +		/* Make sure there's space left in the victim array */
 +		if (++*vindex == vmaxlen)
