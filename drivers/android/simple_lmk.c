@@ -100,7 +100,6 @@ static unsigned long find_victims(struct victim_info *varr, int *vindex,
 
 	for_each_process(tsk) {
 		struct task_struct *vtsk;
-		unsigned long tasksize;
 
 		/*
 		 * Search for tasks with the targeted importance (adj). Since
@@ -125,7 +124,7 @@ static unsigned long find_victims(struct victim_info *varr, int *vindex,
 		varr[*vindex].size = get_mm_rss(vtsk->mm);
 
 		/* Keep track of the number of pages that have been found */
-		pages_found += tasksize;
+		pages_found += varr[*vindex].size;
 
 		/* Make sure there's space left in the victim array */
 		if (++*vindex == vmaxlen)
