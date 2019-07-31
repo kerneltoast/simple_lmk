@@ -1,6 +1,6 @@
-From 0d4737a74e046999e70f0f5fa8a01043d8c14344 Mon Sep 17 00:00:00 2001
+From e3ebadae1fa32475afefaaa41d1856d098f4a527 Mon Sep 17 00:00:00 2001
 From: Sultan Alsawaf <sultan@kerneltoast.com>
-Date: Sat, 20 Jul 2019 09:47:19 -0700
+Date: Thu, 1 Aug 2019 01:22:30 +0200
 Subject: [PATCH] simple_lmk: Introduce Simple Low Memory Killer for Android
 
 This is a complete low memory killer solution for Android that is small
@@ -20,11 +20,11 @@ Signed-off-by: Sultan Alsawaf <sultan@kerneltoast.com>
 ---
  drivers/android/Kconfig      |  44 +++++
  drivers/android/Makefile     |   1 +
- drivers/android/simple_lmk.c | 331 +++++++++++++++++++++++++++++++++++
+ drivers/android/simple_lmk.c | 341 +++++++++++++++++++++++++++++++++++
  include/linux/simple_lmk.h   |  26 +++
  kernel/fork.c                |   2 +
  mm/vmscan.c                  |   4 +
- 6 files changed, 408 insertions(+)
+ 6 files changed, 418 insertions(+)
  create mode 100644 drivers/android/simple_lmk.c
  create mode 100644 include/linux/simple_lmk.h
 
@@ -94,7 +94,7 @@ index 4b7c726bb560..5d4acf08db99 100644
 +obj-$(CONFIG_ANDROID_SIMPLE_LMK)	+= simple_lmk.o
 diff --git a/drivers/android/simple_lmk.c b/drivers/android/simple_lmk.c
 new file mode 100644
-index 000000000000..e7e91b7b4c7b
+index 000000000000..637ece4c7bc5
 --- /dev/null
 +++ b/drivers/android/simple_lmk.c
 @@ -0,0 +1,331 @@
@@ -118,6 +118,11 @@ index 000000000000..e7e91b7b4c7b
 +#include <uapi/linux/sched/types.h>
 +#endif
 +
++/* MAX_RT_PRIO is located elsewhere in older kernels */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 0)
++#include <linux/sched/rt.h>
++#endif
++
 +/* SEND_SIG_FORCED isn't present in newer kernels */
 +#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0)
 +#define SIG_INFO_TYPE SEND_SIG_FORCED
@@ -130,6 +135,11 @@ index 000000000000..e7e91b7b4c7b
 +#define KILL_GROUP_TYPE true
 +#else
 +#define KILL_GROUP_TYPE PIDTYPE_TGID
++#endif
++
++/* MIN_NICE isn't present in older kernels */
++#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 0)
++#define MIN_NICE -20
 +#endif
 +
 +/* The minimum number of pages to free per reclaim */
