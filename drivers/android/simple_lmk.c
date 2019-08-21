@@ -68,7 +68,7 @@ static struct victim_info victims[MAX_VICTIMS];
 static DECLARE_WAIT_QUEUE_HEAD(oom_waitq);
 static DECLARE_COMPLETION(reclaim_done);
 static int victims_to_kill;
-static bool needs_reclaim;
+static atomic_t needs_reclaim = ATOMIC_INIT(0);
 
 static int victim_size_cmp(const void *lhs_ptr, const void *rhs_ptr)
 {
@@ -250,7 +250,7 @@ static int simple_lmk_reclaim_thread(void *data)
 	sched_setscheduler_nocheck(current, SCHED_FIFO, &sched_max_rt_prio);
 
 	while (1) {
-		wait_event(oom_waitq, READ_ONCE(needs_reclaim));
+		wait_event(oom_waitq, atomic_read(&needs_reclaim));
 
 		/*
 		 * Kill a batch of processes and wait for their memory to be
@@ -262,7 +262,7 @@ static int simple_lmk_reclaim_thread(void *data)
 		do {
 			scan_and_kill(MIN_FREE_PAGES);
 			msleep(20);
-		} while (READ_ONCE(needs_reclaim));
+		} while (atomic_read(&needs_reclaim));
 	}
 
 	return 0;
@@ -273,13 +273,13 @@ void simple_lmk_decide_reclaim(int kswapd_priority)
 	if (kswapd_priority != CONFIG_ANDROID_SIMPLE_LMK_AGGRESSION)
 		return;
 
-	if (!cmpxchg(&needs_reclaim, false, true))
+	if (!atomic_cmpxchg(&needs_reclaim, 0, 1))
 		wake_up(&oom_waitq);
 }
 
 void simple_lmk_stop_reclaim(void)
 {
-	WRITE_ONCE(needs_reclaim, false);
+	atomic_set(&needs_reclaim, 0);
 }
 
 void simple_lmk_mm_freed(struct mm_struct *mm)
@@ -303,10 +303,10 @@ void simple_lmk_mm_freed(struct mm_struct *mm)
 /* Initialize Simple LMK when lmkd in Android writes to the minfree parameter */
 static int simple_lmk_init_set(const char *val, const struct kernel_param *kp)
 {
-	static bool init_done;
+	static atomic_t init_done = ATOMIC_INIT(0);
 	struct task_struct *thread;
 
-	if (cmpxchg(&init_done, false, true))
+	if (atomic_cmpxchg(&init_done, 0, 1))
 		return 0;
 
 	thread = kthread_run(simple_lmk_reclaim_thread, NULL, "simple_lmkd");
