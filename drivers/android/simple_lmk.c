@@ -67,7 +67,7 @@ static const short adj_prio[] = {
 static struct victim_info victims[MAX_VICTIMS];
 static DECLARE_WAIT_QUEUE_HEAD(oom_waitq);
 static DECLARE_COMPLETION(reclaim_done);
-static int victims_to_kill;
+static atomic_t victims_to_kill = ATOMIC_INIT(0);
 static atomic_t needs_reclaim = ATOMIC_INIT(0);
 
 static int victim_size_cmp(const void *lhs_ptr, const void *rhs_ptr)
@@ -206,7 +206,7 @@ static void scan_and_kill(unsigned long pages_needed)
 	nr_to_kill = process_victims(victims, nr_to_kill, pages_needed);
 
 	/* Kill the victims */
-	WRITE_ONCE(victims_to_kill, nr_to_kill);
+	atomic_set_release(&victims_to_kill, nr_to_kill);
 	for (i = 0; i < nr_to_kill; i++) {
 		struct victim_info *victim = &victims[i];
 		struct task_struct *vtsk = victim->tsk;
@@ -287,11 +287,11 @@ void simple_lmk_mm_freed(struct mm_struct *mm)
 	static atomic_t nr_killed = ATOMIC_INIT(0);
 	int i, nr_to_kill;
 
-	nr_to_kill = READ_ONCE(victims_to_kill);
+	nr_to_kill = atomic_read_acquire(&victims_to_kill);
 	for (i = 0; i < nr_to_kill; i++) {
 		if (cmpxchg(&victims[i].mm, mm, NULL) == mm) {
 			if (atomic_inc_return(&nr_killed) == nr_to_kill) {
-				WRITE_ONCE(victims_to_kill, 0);
+				atomic_set(&victims_to_kill, 0);
 				nr_killed = (atomic_t)ATOMIC_INIT(0);
 				complete(&reclaim_done);
 			}
