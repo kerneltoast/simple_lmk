@@ -112,7 +112,7 @@ config ANDROID_SIMPLE_LMK_AGGRESSION
 config ANDROID_SIMPLE_LMK_MINFREE
 	int "Minimum MiB of memory to free per reclaim"
 	range 8 512
-	default 100
+	default 128
 	help
 	  Simple LMK will try to free at least this much memory per reclaim.
 
