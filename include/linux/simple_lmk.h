@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright (C) 2019 Sultan Alsawaf <sultan@kerneltoast.com>.
+ * Copyright (C) 2019-2020 Sultan Alsawaf <sultan@kerneltoast.com>.
  */
 #ifndef _SIMPLE_LMK_H_
 #define _SIMPLE_LMK_H_
