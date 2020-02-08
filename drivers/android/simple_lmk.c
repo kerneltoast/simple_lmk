@@ -17,6 +17,9 @@
 /* Kill up to this many victims per reclaim */
 #define MAX_VICTIMS 1024
 
+/* Timeout in jiffies for each reclaim */
+#define RECLAIM_EXPIRES msecs_to_jiffies(CONFIG_ANDROID_SIMPLE_LMK_TIMEOUT_MSEC)
+
 struct victim_info {
 	struct task_struct *tsk;
 	struct mm_struct *mm;
@@ -46,8 +49,10 @@ static const short adj_prio[] = {
 static struct victim_info victims[MAX_VICTIMS];
 static DECLARE_WAIT_QUEUE_HEAD(oom_waitq);
 static DECLARE_COMPLETION(reclaim_done);
-static atomic_t victims_to_kill = ATOMIC_INIT(0);
+static DEFINE_RWLOCK(mm_free_lock);
+static int victims_to_kill;
 static atomic_t needs_reclaim = ATOMIC_INIT(0);
+static atomic_t nr_killed = ATOMIC_INIT(0);
 
 static int victim_size_cmp(const void *lhs_ptr, const void *rhs_ptr)
 {
@@ -151,7 +156,7 @@ static int process_victims(int vlen, unsigned long pages_needed)
 
 static void scan_and_kill(unsigned long pages_needed)
 {
-	int i, nr_to_kill = 0, nr_victims = 0;
+	int i, nr_to_kill = 0, nr_victims = 0, ret;
 	unsigned long pages_found = 0;
 
 	/*
@@ -186,8 +191,12 @@ static void scan_and_kill(unsigned long pages_needed)
 	/* Second round of victim processing to finally select the victims */
 	nr_to_kill = process_victims(nr_to_kill, pages_needed);
 
+	/* Store the final number of victims for simple_lmk_mm_freed() */
+	write_lock(&mm_free_lock);
+	victims_to_kill = nr_to_kill;
+	write_unlock(&mm_free_lock);
+
 	/* Kill the victims */
-	atomic_set_release(&victims_to_kill, nr_to_kill);
 	for (i = 0; i < nr_to_kill; i++) {
 		struct victim_info *victim = &victims[i];
 		struct task_struct *t, *vtsk = victim->tsk;
@@ -215,8 +224,18 @@ static void scan_and_kill(unsigned long pages_needed)
 		task_unlock(vtsk);
 	}
 
-	/* Wait until all the victims die */
-	wait_for_completion(&reclaim_done);
+	/* Wait until all the victims die or until the timeout is reached */
+	ret = wait_for_completion_timeout(&reclaim_done, RECLAIM_EXPIRES);
+	write_lock(&mm_free_lock);
+	if (!ret) {
+		/* Extra clean-up is needed when the timeout is hit */
+		reinit_completion(&reclaim_done);
+		for (i = 0; i < nr_to_kill; i++)
+			victims[i].mm = NULL;
+	}
+	victims_to_kill = 0;
+	nr_killed = (atomic_t)ATOMIC_INIT(0);
+	write_unlock(&mm_free_lock);
 }
 
 static int simple_lmk_reclaim_thread(void *data)
@@ -245,20 +264,17 @@ void simple_lmk_decide_reclaim(int kswapd_priority)
 
 void simple_lmk_mm_freed(struct mm_struct *mm)
 {
-	static atomic_t nr_killed = ATOMIC_INIT(0);
-	int i, nr_to_kill;
+	int i;
 
-	nr_to_kill = atomic_read_acquire(&victims_to_kill);
-	for (i = 0; i < nr_to_kill; i++) {
+	read_lock(&mm_free_lock);
+	for (i = 0; i < victims_to_kill; i++) {
 		if (cmpxchg(&victims[i].mm, mm, NULL) == mm) {
-			if (atomic_inc_return(&nr_killed) == nr_to_kill) {
-				atomic_set(&victims_to_kill, 0);
-				nr_killed = (atomic_t)ATOMIC_INIT(0);
+			if (atomic_inc_return(&nr_killed) == victims_to_kill)
 				complete(&reclaim_done);
-			}
 			break;
 		}
 	}
+	read_unlock(&mm_free_lock);
 }
 
 /* Initialize Simple LMK when lmkd in Android writes to the minfree parameter */

@@ -83,6 +83,17 @@ config ANDROID_SIMPLE_LMK_MINFREE
 	help
 	  Simple LMK will try to free at least this much memory per reclaim.
 
+config ANDROID_SIMPLE_LMK_TIMEOUT_MSEC
+	int "Reclaim timeout in milliseconds"
+	range 50 1000
+	default 200
+	help
+	  Simple LMK tries to wait until all of the victims it kills have their
+	  memory freed; however, sometimes victims can take a while to die,
+	  which can block Simple LMK from killing more processes in time when
+	  needed. After the specified timeout elapses, Simple LMK will stop
+	  waiting and make itself available to kill more processes.
+
 endif
 
 endif # if ANDROID
