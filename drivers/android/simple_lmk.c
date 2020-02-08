@@ -201,23 +201,14 @@ static void scan_and_kill(unsigned long pages_needed)
 			set_tsk_thread_flag(t, TIF_MEMDIE);
 		rcu_read_unlock();
 
-		/* Grab a reference to the victim for later before unlocking */
-		get_task_struct(vtsk);
-		task_unlock(vtsk);
-	}
-
-	/* Try to speed up the death process now that we can schedule again */
-	for (i = 0; i < nr_to_kill; i++) {
-		struct task_struct *vtsk = victims[i].tsk;
-
 		/* Increase the victim's priority to make it die faster */
 		set_user_nice(vtsk, MIN_NICE);
 
-		/* Allow the victim to run on any CPU */
+		/* Allow the victim to run on any CPU. This won't schedule. */
 		set_cpus_allowed_ptr(vtsk, cpu_all_mask);
 
-		/* Finally release the victim reference acquired earlier */
-		put_task_struct(vtsk);
+		/* Finally release the victim's task lock acquired earlier */
+		task_unlock(vtsk);
 	}
 
 	/* Wait until all the victims die */
