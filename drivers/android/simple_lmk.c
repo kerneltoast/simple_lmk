@@ -77,18 +77,22 @@ static unsigned long find_victims(int *vindex, short target_adj)
 	struct task_struct *tsk;
 
 	for_each_process(tsk) {
+		struct signal_struct *sig;
 		struct task_struct *vtsk;
 
 		/*
-		 * Search for tasks with the targeted importance (adj). Since
-		 * only tasks with a positive adj can be targeted, that
+		 * Search for suitable tasks with the targeted importance (adj).
+		 * Since only tasks with a positive adj can be targeted, that
 		 * naturally excludes tasks which shouldn't be killed, like init
 		 * and kthreads. Although oom_score_adj can still be changed
 		 * while this code runs, it doesn't really matter. We just need
 		 * to make sure that if the adj changes, we won't deadlock
 		 * trying to lock a task that we locked earlier.
 		 */
-		if (READ_ONCE(tsk->signal->oom_score_adj) != target_adj ||
+		sig = tsk->signal;
+		if (READ_ONCE(sig->oom_score_adj) != target_adj ||
+		    sig->flags & (SIGNAL_GROUP_EXIT | SIGNAL_GROUP_COREDUMP) ||
+		    (thread_group_empty(tsk) && tsk->flags & PF_EXITING) ||
 		    vtsk_is_duplicate(*vindex, tsk))
 			continue;
 
