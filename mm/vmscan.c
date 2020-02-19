@@ -3323,7 +3323,8 @@ static unsigned long balance_pgdat(pg_data_t *pgdat, int order,
 			order = sc.order = 0;
 
 		/* Check if kswapd should be suspending */
-		if (try_to_freeze() || kthread_should_stop())
+		if (try_to_freeze() || kthread_should_stop() ||
+		    !atomic_read(&pgdat->kswapd_waiters))
 			break;
 
 		/*
