@@ -46,7 +46,6 @@
 #include <linux/oom.h>
 #include <linux/prefetch.h>
 #include <linux/printk.h>
-#include <linux/simple_lmk.h>
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
@@ -3186,7 +3185,6 @@ static unsigned long balance_pgdat(pg_data_t *pgdat, int order,
 		bool raise_priority = true;
 		bool pgdat_needs_compaction = (order > 0);
 
-		simple_lmk_decide_reclaim(sc.priority);
 		sc.nr_reclaimed = 0;
 
 		/*
