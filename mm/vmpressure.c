@@ -262,20 +262,6 @@ static void vmpressure_memcg(gfp_t gfp, struct mem_cgroup *memcg, bool tree,
 	struct vmpressure *vmpr = memcg_to_vmpressure(memcg);
 
 	/*
-	 * Here we only want to account pressure that userland is able to
-	 * help us with. For example, suppose that DMA zone is under
-	 * pressure; if we notify userland about that kind of pressure,
-	 * then it will be mostly a waste as it will trigger unnecessary
-	 * freeing of memory by userland (since userland is more likely to
-	 * have HIGHMEM/MOVABLE pages instead of the DMA fallback). That
-	 * is why we include only movable, highmem and FS/IO pages.
-	 * Indirect reclaim (kswapd) sets sc->gfp_mask to GFP_KERNEL, so
-	 * we account it too.
-	 */
-	if (!(gfp & (__GFP_HIGHMEM | __GFP_MOVABLE | __GFP_IO | __GFP_FS)))
-		return;
-
-	/*
 	 * If we got here with no pages scanned, then that is an indicator
 	 * that reclaimer was unable to find any shrinkable LRUs at the
 	 * current scanning depth. But it does not mean that we should
@@ -363,9 +349,6 @@ static void vmpressure_global(gfp_t gfp, unsigned long scanned,
 	struct vmpressure *vmpr = &global_vmpressure;
 	unsigned long pressure;
 	unsigned long stall;
-
-	if (!(gfp & (__GFP_HIGHMEM | __GFP_MOVABLE | __GFP_IO | __GFP_FS)))
-		return;
 
 	if (!scanned)
 		return;
