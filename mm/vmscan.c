@@ -3591,7 +3591,7 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int classzone_idx)
 		ret = try_to_freeze();
 		__fs_reclaim_acquire();
 		if (ret || kthread_should_stop() ||
-		    !atomic_read(&pgdat->kswapd_waiters))
+		    !atomic_long_read(&kswapd_waiters))
 			break;
 
 		/*
