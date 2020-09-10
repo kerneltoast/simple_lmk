@@ -43,7 +43,7 @@ config ANDROID_BINDER_IPC_SELFTEST
 
 config ANDROID_SIMPLE_LMK
 	bool "Simple Android Low Memory Killer"
-	depends on !ANDROID_LOW_MEMORY_KILLER && !MEMCG
+	depends on !ANDROID_LOW_MEMORY_KILLER && !MEMCG && !PSI
 	---help---
 	  This is a complete low memory killer solution for Android that is
 	  small and simple. Processes are killed according to the priorities
