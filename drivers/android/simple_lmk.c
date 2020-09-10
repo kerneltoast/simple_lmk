@@ -235,7 +235,10 @@ static void scan_and_kill(unsigned long pages_needed)
 	}
 
 	/* Wait until all the victims die or until the timeout is reached */
-	wait_for_completion_timeout(&reclaim_done, RECLAIM_EXPIRES);
+	if (!wait_for_completion_timeout(&reclaim_done, RECLAIM_EXPIRES))
+		pr_info("Timeout hit waiting for victims to die, proceeding\n");
+
+	/* Clean up for future reclaim invocations */
 	write_lock(&mm_free_lock);
 	reinit_completion(&reclaim_done);
 	nr_victims = 0;
