@@ -46,10 +46,10 @@ static const unsigned short adjs[] = {
 	0 /* FOREGROUND_APP_ADJ */
 };
 
-static struct victim_info victims[MAX_VICTIMS];
+static struct victim_info victims[MAX_VICTIMS] __cacheline_aligned_in_smp;
 static DECLARE_WAIT_QUEUE_HEAD(oom_waitq);
 static DECLARE_COMPLETION(reclaim_done);
-static DEFINE_RWLOCK(mm_free_lock);
+static __cacheline_aligned_in_smp DEFINE_RWLOCK(mm_free_lock);
 static int nr_victims;
 static atomic_t needs_reclaim = ATOMIC_INIT(0);
 static atomic_t nr_killed = ATOMIC_INIT(0);
