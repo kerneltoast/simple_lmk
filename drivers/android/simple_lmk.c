@@ -142,7 +142,7 @@ static unsigned long find_victims(int *vindex, unsigned short target_adj_min,
 	return pages_found;
 }
 
-static int process_victims(int vlen, unsigned long pages_needed)
+static int process_victims(int vlen)
 {
 	unsigned long pages_found = 0;
 	int i, nr_to_kill = 0;
@@ -156,7 +156,7 @@ static int process_victims(int vlen, unsigned long pages_needed)
 		struct task_struct *vtsk = victim->tsk;
 
 		/* The victim's mm lock is taken in find_victims; release it */
-		if (pages_found >= pages_needed) {
+		if (pages_found >= MIN_FREE_PAGES) {
 			task_unlock(vtsk);
 		} else {
 			pages_found += victim->size;
@@ -167,7 +167,7 @@ static int process_victims(int vlen, unsigned long pages_needed)
 	return nr_to_kill;
 }
 
-static void scan_and_kill(unsigned long pages_needed)
+static void scan_and_kill(void)
 {
 	int i, nr_to_kill = 0, nr_found = 0;
 	unsigned long pages_found = 0;
@@ -176,7 +176,7 @@ static void scan_and_kill(unsigned long pages_needed)
 	rcu_read_lock();
 	for (i = 1; i < ARRAY_SIZE(adjs); i++) {
 		pages_found += find_victims(&nr_found, adjs[i], adjs[i - 1]);
-		if (pages_found >= pages_needed || nr_found == MAX_VICTIMS)
+		if (pages_found >= MIN_FREE_PAGES || nr_found == MAX_VICTIMS)
 			break;
 	}
 	rcu_read_unlock();
@@ -188,7 +188,7 @@ static void scan_and_kill(unsigned long pages_needed)
 	}
 
 	/* First round of victim processing to weed out unneeded victims */
-	nr_to_kill = process_victims(nr_found, pages_needed);
+	nr_to_kill = process_victims(nr_found);
 
 	/*
 	 * Try to kill as few of the chosen victims as possible by sorting the
@@ -198,7 +198,7 @@ static void scan_and_kill(unsigned long pages_needed)
 	sort(victims, nr_to_kill, sizeof(*victims), victim_size_cmp, NULL);
 
 	/* Second round of victim processing to finally select the victims */
-	nr_to_kill = process_victims(nr_to_kill, pages_needed);
+	nr_to_kill = process_victims(nr_to_kill);
 
 	/* Store the final number of victims for simple_lmk_mm_freed() */
 	write_lock(&mm_free_lock);
@@ -256,7 +256,7 @@ static int simple_lmk_reclaim_thread(void *data)
 
 	while (1) {
 		wait_event(oom_waitq, atomic_read(&needs_reclaim));
-		scan_and_kill(MIN_FREE_PAGES);
+		scan_and_kill();
 		atomic_set_release(&needs_reclaim, 0);
 	}
 
