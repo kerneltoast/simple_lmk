@@ -54,7 +54,7 @@ static int nr_victims;
 static atomic_t needs_reclaim = ATOMIC_INIT(0);
 static atomic_t nr_killed = ATOMIC_INIT(0);
 
-static int victim_size_cmp(const void *lhs_ptr, const void *rhs_ptr)
+static int victim_cmp(const void *lhs_ptr, const void *rhs_ptr)
 {
 	const struct victim_info *lhs = (typeof(lhs))lhs_ptr;
 	const struct victim_info *rhs = (typeof(rhs))rhs_ptr;
@@ -137,7 +137,7 @@ static unsigned long find_victims(int *vindex, unsigned short target_adj_min,
 	 */
 	if (pages_found)
 		sort(&victims[old_vindex], *vindex - old_vindex,
-		     sizeof(*victims), victim_size_cmp, NULL);
+		     sizeof(*victims), victim_cmp, NULL);
 
 	return pages_found;
 }
@@ -187,18 +187,25 @@ static void scan_and_kill(void)
 		return;
 	}
 
-	/* First round of victim processing to weed out unneeded victims */
-	nr_to_kill = process_victims(nr_found);
+	/* Minimize the number of victims if we found more pages than needed */
+	if (pages_found > MIN_FREE_PAGES) {
+		/* First round of processing to weed out unneeded victims */
+		nr_to_kill = process_victims(nr_found);
 
-	/*
-	 * Try to kill as few of the chosen victims as possible by sorting the
-	 * chosen victims by size, which means larger victims that have a lower
-	 * adj can be killed in place of smaller victims with a high adj.
-	 */
-	sort(victims, nr_to_kill, sizeof(*victims), victim_size_cmp, NULL);
+		/*
+		 * Try to kill as few of the chosen victims as possible by
+		 * sorting the chosen victims by size, which means larger
+		 * victims that have a lower adj can be killed in place of
+		 * smaller victims with a high adj.
+		 */
+		sort(victims, nr_to_kill, sizeof(*victims), victim_cmp, NULL);
 
-	/* Second round of victim processing to finally select the victims */
-	nr_to_kill = process_victims(nr_to_kill);
+		/* Second round of processing to finally select the victims */
+		nr_to_kill = process_victims(nr_to_kill);
+	} else {
+		/* Too few pages found, so all the victims need to be killed */
+		nr_to_kill = nr_found;
+	}
 
 	/* Store the final number of victims for simple_lmk_mm_freed() */
 	write_lock(&mm_free_lock);
