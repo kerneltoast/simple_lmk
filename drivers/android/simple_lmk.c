@@ -27,25 +27,8 @@ struct victim_info {
 	unsigned long size;
 };
 
-/* Pulled from the Android framework. Lower adj means higher priority. */
-static const unsigned short adjs[] = {
-	SHRT_MAX + 1, /* Include all positive adjs in the final range */
-	950, /* CACHED_APP_LMK_FIRST_ADJ */
-	900, /* CACHED_APP_MIN_ADJ */
-	800, /* SERVICE_B_ADJ */
-	700, /* PREVIOUS_APP_ADJ */
-	600, /* HOME_APP_ADJ */
-	500, /* SERVICE_ADJ */
-	400, /* HEAVY_WEIGHT_APP_ADJ */
-	300, /* BACKUP_APP_ADJ */
-	250, /* PERCEPTIBLE_LOW_APP_ADJ */
-	200, /* PERCEPTIBLE_APP_ADJ */
-	100, /* VISIBLE_APP_ADJ */
-	50, /* PERCEPTIBLE_RECENT_FOREGROUND_APP_ADJ */
-	0 /* FOREGROUND_APP_ADJ */
-};
-
 static struct victim_info victims[MAX_VICTIMS] __cacheline_aligned_in_smp;
+static struct task_struct *task_bucket[SHRT_MAX + 1] __cacheline_aligned;
 static DECLARE_WAIT_QUEUE_HEAD(oom_waitq);
 static DECLARE_COMPLETION(reclaim_done);
 static __cacheline_aligned_in_smp DEFINE_RWLOCK(mm_free_lock);
@@ -69,18 +52,6 @@ static void victim_swap(void *lhs_ptr, void *rhs_ptr, int size)
 	swap(*lhs, *rhs);
 }
 
-static bool vtsk_is_duplicate(int vlen, struct task_struct *vtsk)
-{
-	int i;
-
-	for (i = 0; i < vlen; i++) {
-		if (same_thread_group(victims[i].tsk, vtsk))
-			return true;
-	}
-
-	return false;
-}
-
 static unsigned long get_total_mm_pages(struct mm_struct *mm)
 {
 	unsigned long pages = 0;
@@ -92,59 +63,97 @@ static unsigned long get_total_mm_pages(struct mm_struct *mm)
 	return pages;
 }
 
-static unsigned long find_victims(int *vindex, unsigned short target_adj_min,
-				  unsigned short target_adj_max)
+static unsigned long find_victims(int *vindex)
 {
+	short i, min_adj = SHRT_MAX, max_adj = 0;
 	unsigned long pages_found = 0;
-	int old_vindex = *vindex;
 	struct task_struct *tsk;
 
+	rcu_read_lock();
 	for_each_process(tsk) {
 		struct signal_struct *sig;
-		struct task_struct *vtsk;
 		short adj;
 
 		/*
-		 * Search for suitable tasks with the targeted importance (adj).
+		 * Search for suitable tasks with a positive adj (importance).
 		 * Since only tasks with a positive adj can be targeted, that
 		 * naturally excludes tasks which shouldn't be killed, like init
 		 * and kthreads. Although oom_score_adj can still be changed
-		 * while this code runs, it doesn't really matter. We just need
-		 * to make sure that if the adj changes, we won't deadlock
-		 * trying to lock a task that we locked earlier.
+		 * while this code runs, it doesn't really matter; we just need
+		 * a snapshot of the task's adj.
 		 */
 		sig = tsk->signal;
 		adj = READ_ONCE(sig->oom_score_adj);
-		if (adj < target_adj_min || adj > target_adj_max - 1 ||
+		if (adj < 0 ||
 		    sig->flags & (SIGNAL_GROUP_EXIT | SIGNAL_GROUP_COREDUMP) ||
-		    (thread_group_empty(tsk) && tsk->flags & PF_EXITING) ||
-		    vtsk_is_duplicate(*vindex, tsk))
+		    (thread_group_empty(tsk) && tsk->flags & PF_EXITING))
 			continue;
 
-		vtsk = find_lock_task_mm(tsk);
-		if (!vtsk)
-			continue;
+		/* Store the task in a linked-list bucket based on its adj */
+		tsk->simple_lmk_next = task_bucket[adj];
+		task_bucket[adj] = tsk;
 
-		/* Store this potential victim away for later */
-		victims[*vindex].tsk = vtsk;
-		victims[*vindex].mm = vtsk->mm;
-		victims[*vindex].size = get_total_mm_pages(vtsk->mm);
-
-		/* Keep track of the number of pages that have been found */
-		pages_found += victims[*vindex].size;
-
-		/* Make sure there's space left in the victim array */
-		if (++*vindex == MAX_VICTIMS)
-			break;
+		/* Track the min and max adjs to speed up the loop below */
+		if (adj > max_adj)
+			max_adj = adj;
+		if (adj < min_adj)
+			min_adj = adj;
 	}
 
-	/*
-	 * Sort the victims in descending order of size to prioritize killing
-	 * the larger ones first.
-	 */
-	if (pages_found)
+	/* Start searching for victims from the highest adj (least important) */
+	for (i = max_adj; i >= min_adj; i--) {
+		int old_vindex;
+
+		tsk = task_bucket[i];
+		if (!tsk)
+			continue;
+
+		/* Clear out this bucket for the next time reclaim is done */
+		task_bucket[i] = NULL;
+
+		/* Iterate through every task with this adj */
+		old_vindex = *vindex;
+		do {
+			struct task_struct *vtsk;
+
+			vtsk = find_lock_task_mm(tsk);
+			if (!vtsk)
+				continue;
+
+			/* Store this potential victim away for later */
+			victims[*vindex].tsk = vtsk;
+			victims[*vindex].mm = vtsk->mm;
+			victims[*vindex].size = get_total_mm_pages(vtsk->mm);
+
+			/* Count the number of pages that have been found */
+			pages_found += victims[*vindex].size;
+
+			/* Make sure there's space left in the victim array */
+			if (++*vindex == MAX_VICTIMS)
+				break;
+		} while ((tsk = tsk->simple_lmk_next));
+
+		/* Go to the next bucket if nothing was found */
+		if (*vindex == old_vindex)
+			continue;
+
+		/*
+		 * Sort the victims in descending order of size to prioritize
+		 * killing the larger ones first.
+		 */
 		sort(&victims[old_vindex], *vindex - old_vindex,
 		     sizeof(*victims), victim_cmp, victim_swap);
+
+		/* Stop when we are out of space or have enough pages found */
+		if (*vindex == MAX_VICTIMS || pages_found >= MIN_FREE_PAGES) {
+			/* Zero out any remaining buckets we didn't touch */
+			if (i > min_adj)
+				memset(&task_bucket[min_adj], 0,
+				       (i - min_adj) * sizeof(*task_bucket));
+			break;
+		}
+	}
+	rcu_read_unlock();
 
 	return pages_found;
 }
@@ -176,20 +185,12 @@ static int process_victims(int vlen)
 
 static void scan_and_kill(void)
 {
-	int i, nr_to_kill = 0, nr_found = 0;
-	unsigned long pages_found = 0;
+	int i, nr_to_kill, nr_found = 0;
+	unsigned long pages_found;
 
-	/* Hold an RCU read lock while traversing the global process list */
-	rcu_read_lock();
-	for (i = 1; i < ARRAY_SIZE(adjs); i++) {
-		pages_found += find_victims(&nr_found, adjs[i], adjs[i - 1]);
-		if (pages_found >= MIN_FREE_PAGES || nr_found == MAX_VICTIMS)
-			break;
-	}
-	rcu_read_unlock();
-
-	/* Pretty unlikely but it can happen */
-	if (unlikely(!nr_found)) {
+	/* Populate the victims array with tasks sorted by adj and then size */
+	pages_found = find_victims(&nr_found);
+	if (unlikely(!pages_found)) {
 		pr_err("No processes available to kill!\n");
 		return;
 	}
