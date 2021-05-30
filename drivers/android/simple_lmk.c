@@ -1,4 +1,8 @@
-
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Copyright (C) 2019-2021 Sultan Alsawaf <sultan@kerneltoast.com>.
+ * Copyright (C) 2019-2021 Xiaomi Inc.
+ */
 #define pr_fmt(fmt)"simple_lmk: " fmt
 
 #include<linux/kthread.h>
