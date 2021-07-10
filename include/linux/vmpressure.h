@@ -25,6 +25,9 @@ struct vmpressure {
 	struct mutex events_lock;
 
 	struct work_struct work;
+
+	atomic_long_t users;
+	rwlock_t users_lock;
 };
 
 struct mem_cgroup;
@@ -36,6 +39,8 @@ extern void vmpressure(gfp_t gfp, struct mem_cgroup *memcg, bool tree,
 		       int order);
 extern void vmpressure_prio(gfp_t gfp, struct mem_cgroup *memcg, int prio,
 			    int order);
+extern bool vmpressure_inc_users(int order);
+extern void vmpressure_dec_users(void);
 
 #ifdef CONFIG_MEMCG
 extern void vmpressure_init(struct vmpressure *vmpr);
