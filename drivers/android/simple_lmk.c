@@ -248,6 +248,9 @@ static void scan_and_kill(void)
 		/* Allow the victim to run on any CPU. This won't schedule. */
 		set_cpus_allowed_ptr(vtsk, cpu_all_mask);
 
+		/* Signals can't wake frozen tasks; only a thaw operation can */
+		__thaw_task(vtsk);
+
 		/* Finally release the victim's task lock acquired earlier */
 		task_unlock(vtsk);
 	}
