@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (C) 2019-2021 Sultan Alsawaf <sultan@kerneltoast.com>.
+ * Copyright (C) 2019-2023 Sultan Alsawaf <sultan@kerneltoast.com>.
  */
 
 #define pr_fmt(fmt) "simple_lmk: " fmt
@@ -225,7 +225,9 @@ static void scan_and_kill(void)
 
 	/* Kill the victims */
 	for (i = 0; i < nr_to_kill; i++) {
-		static const struct sched_param sched_zero_prio;
+		static const struct sched_param min_rt_prio = {
+			.sched_priority = 1
+		};
 		struct victim_info *victim = &victims[i];
 		struct task_struct *t, *vtsk = victim->tsk;
 
@@ -236,14 +238,22 @@ static void scan_and_kill(void)
 		/* Accelerate the victim's death by forcing the kill signal */
 		do_send_sig_info(SIGKILL, SEND_SIG_FORCED, vtsk, PIDTYPE_TGID);
 
-		/* Mark the thread group dead so that other kernel code knows */
+		/*
+		 * Mark the thread group dead so that other kernel code knows,
+		 * and then elevate the thread group to SCHED_RR with minimum RT
+		 * priority. The entire group needs to be elevated because
+		 * there's no telling which threads have references to the mm as
+		 * well as which thread will happen to put the final reference
+		 * and release the mm's memory. If the mm is released from a
+		 * thread with low scheduling priority then it may take a very
+		 * long time for exit_mmap() to complete.
+		 */
 		rcu_read_lock();
 		for_each_thread(vtsk, t)
 			set_tsk_thread_flag(t, TIF_MEMDIE);
+		for_each_thread(vtsk, t)
+			sched_setscheduler_nocheck(t, SCHED_RR, &min_rt_prio);
 		rcu_read_unlock();
-
-		/* Elevate the victim to SCHED_RR with zero RT priority */
-		sched_setscheduler_nocheck(vtsk, SCHED_RR, &sched_zero_prio);
 
 		/* Allow the victim to run on any CPU. This won't schedule. */
 		set_cpus_allowed_ptr(vtsk, cpu_all_mask);
