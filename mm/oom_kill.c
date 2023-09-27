@@ -685,7 +685,11 @@ bool out_of_memory(struct oom_control *oc)
 	unsigned int uninitialized_var(points);
 	enum oom_constraint constraint = CONSTRAINT_NONE;
 
-	if (oom_killer_disabled || IS_ENABLED(CONFIG_ANDROID_SIMPLE_LMK))
+	/* Return true since Simple LMK automatically kills in the background */
+	if (IS_ENABLED(CONFIG_ANDROID_SIMPLE_LMK))
+		return true;
+
+	if (oom_killer_disabled)
 		return false;
 
 	blocking_notifier_call_chain(&oom_notify_list, 0, &freed);
